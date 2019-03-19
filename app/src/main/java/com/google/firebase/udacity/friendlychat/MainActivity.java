@@ -192,13 +192,7 @@ public class MainActivity extends AppCompatActivity {
                 public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {}
                 public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {}
                 public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {}
-
-                @Override
-                public void onCancelled(@NonNull DatabaseError databaseError) {
-                    Log.e(TAG, databaseError.getMessage());
-                    Log.e(TAG, databaseError.getDetails());
-                    Log.e(TAG, format("Code: %d", databaseError.getCode()));
-                }
+                public void onCancelled(@NonNull DatabaseError databaseError) { }
             };
             messagesDatabaseReference.addChildEventListener(childEventListener);
         }
