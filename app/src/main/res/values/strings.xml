@@ -2,4 +2,7 @@
     <string name="app_name">Friendly Chat</string>
     <string name="sign_out">Sign Out</string>
     <string name="send_button_label">Send</string>
+    <string name="welcome_message">Welcome %s to %s app!</string>
+    <string name="good_bye_message">Good bye fellow. Hope see you soon!!!</string>
+    <string name="sorry_message">I\'m so sorry this happened. Come back later until I fix this issue!</string>
 </resources>
