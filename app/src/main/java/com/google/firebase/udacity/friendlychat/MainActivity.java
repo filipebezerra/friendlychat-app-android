@@ -16,7 +16,10 @@
 package com.google.firebase.udacity.friendlychat;
 
 import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
@@ -39,6 +42,7 @@ import com.firebase.ui.auth.AuthUI;
 import com.firebase.ui.auth.AuthUI.IdpConfig.EmailBuilder;
 import com.firebase.ui.auth.AuthUI.IdpConfig.GoogleBuilder;
 import com.firebase.ui.auth.IdpResponse;
+import com.google.android.gms.tasks.Continuation;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
@@ -48,12 +52,18 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import static android.content.Intent.createChooser;
 import static android.widget.Toast.LENGTH_SHORT;
 import static android.widget.Toast.makeText;
+import static com.google.firebase.udacity.friendlychat.FriendlyMessage.newPhoto;
+import static com.google.firebase.udacity.friendlychat.FriendlyMessage.newText;
 import static java.lang.String.format;
 import static java.util.Arrays.asList;
 
@@ -62,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
 
     private static final int RC_SIGN_IN = 1001;
+    private static final int RC_PHOTO_PICKER = 1002;
 
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
@@ -73,6 +84,8 @@ public class MainActivity extends AppCompatActivity {
     private EditText mMessageEditText;
     private Button mSendButton;
 
+    private String username;
+
     private FirebaseDatabase firebaseDatabase;
     private DatabaseReference messagesDatabaseReference;
     private ChildEventListener childEventListener;
@@ -81,7 +94,8 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseAuth.AuthStateListener authStateListener;
     private FirebaseUser currentUser;
 
-    private String username;
+    private FirebaseStorage firebaseStorage;
+    private StorageReference chatPhotosStorageReference;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,8 +105,10 @@ public class MainActivity extends AppCompatActivity {
         username = ANONYMOUS;
 
         firebaseDatabase = FirebaseDatabase.getInstance();
-        firebaseAuth = FirebaseAuth.getInstance();
         messagesDatabaseReference = firebaseDatabase.getReference().child("messages");
+        firebaseAuth = FirebaseAuth.getInstance();
+        firebaseStorage = FirebaseStorage.getInstance();
+        chatPhotosStorageReference = firebaseStorage.getReference().child("chat_photos");
 
         // Initialize references to views
         mProgressBar = findViewById(R.id.progressBar);
@@ -113,11 +129,11 @@ public class MainActivity extends AppCompatActivity {
         mPhotoPickerButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                // TODO: Fire an intent to show an image picker
+                startPickingPhoto();
             }
         });
 
-        // Enable Send button when there's text to send
+        // Enable Send button when there's newText to send
         mMessageEditText.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
@@ -142,10 +158,8 @@ public class MainActivity extends AppCompatActivity {
         mSendButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                FriendlyMessage message = new FriendlyMessage(
-                        mMessageEditText.getText().toString(), username, null);
-
-                messagesDatabaseReference.push().setValue(message);
+                messagesDatabaseReference.push()
+                        .setValue(newText(username, mMessageEditText.getText().toString()));
 
                 // Clear input box
                 mMessageEditText.setText("");
@@ -159,6 +173,13 @@ public class MainActivity extends AppCompatActivity {
                 onAfterAuthStateChanged();
             }
         };
+    }
+
+    private void startPickingPhoto() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/jpeg");
+        intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+        startActivityForResult(createChooser(intent, "Complete action using"), RC_PHOTO_PICKER);
     }
 
     private void onAfterAuthStateChanged() {
@@ -276,7 +297,67 @@ public class MainActivity extends AppCompatActivity {
             case RC_SIGN_IN:
                 onAfterSignInResult(data, resultCode);
                 break;
+            case RC_PHOTO_PICKER:
+                onPhotoPickerResult(data);
+                break;
         }
+    }
+
+    private void onPhotoPickerResult(@Nullable Intent data) {
+        if (data != null && data.getData() != null) {
+            Uri selectedPhotoUri = data.getData();
+            uploadPhotoToStorage(selectedPhotoUri);
+        }
+    }
+
+    private void uploadPhotoToStorage(Uri selectedPhoto) {
+        final StorageReference child = chatPhotosStorageReference.child(getFileName(selectedPhoto));
+        UploadTask uploadTask = child.putFile(selectedPhoto);
+        uploadTask.continueWithTask(new Continuation<UploadTask.TaskSnapshot, Task<Uri>>() {
+            @Override
+            public Task<Uri> then(@NonNull Task<UploadTask.TaskSnapshot> task) throws Exception {
+                if (!task.isSuccessful()) {
+                    throw task.getException();
+                }
+                return child.getDownloadUrl();
+            }
+        }).addOnCompleteListener(new OnCompleteListener<Uri>() {
+            @Override
+            public void onComplete(@NonNull Task<Uri> task) {
+                if (task.isSuccessful()) {
+                    sendPhotoUrlMessage(task.getResult());
+                }
+            }
+        });
+    }
+
+    public String getFileName(Uri uri) {
+        String result = null;
+        if (uri.getScheme().equals("content")) {
+            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    result = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                }
+            } finally {
+                if (cursor != null) {
+                    cursor.close();
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.getPath();
+            int cut = result.lastIndexOf('/');
+            if (cut != -1) {
+                result = result.substring(cut + 1);
+            }
+        }
+        return result;
+    }
+
+    private void sendPhotoUrlMessage(Uri downloadUri) {
+        String downloadUrl = downloadUri.toString();
+        messagesDatabaseReference.push().setValue(newPhoto(username, downloadUrl));
     }
 
     private void onAfterSignInResult(Intent data, int resultCode) {

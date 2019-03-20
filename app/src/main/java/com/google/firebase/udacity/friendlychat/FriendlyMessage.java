@@ -24,7 +24,15 @@ public class FriendlyMessage {
     @SuppressWarnings("unused")
     public FriendlyMessage() { }
 
-    public FriendlyMessage(String text, String name, String photoUrl) {
+    public static FriendlyMessage newPhoto(String name, String photoUrl) {
+        return new FriendlyMessage(null, name, photoUrl);
+    }
+
+    public static FriendlyMessage newText(String name, String text) {
+        return new FriendlyMessage(text, name, null);
+    }
+
+    private FriendlyMessage(String text, String name, String photoUrl) {
         this.text = text;
         this.name = name;
         this.photoUrl = photoUrl;
